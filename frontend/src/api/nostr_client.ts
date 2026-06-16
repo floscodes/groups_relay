@@ -1,6 +1,7 @@
 import NDK, {
   NDKEvent,
   NDKPrivateKeySigner,
+  NDKNip07Signer,
   NDKRelay,
   NDKPublishError,
   NDKUser,
@@ -88,12 +89,16 @@ export class NostrClient {
 
       // Try to create the signer with better error handling
       let signer;
-      try {
-        signer = new NDKPrivateKeySigner(key);
-      } catch (signerError) {
-        throw new Error(
-          "Invalid private key provided. Please check the format and try again."
-        );
+      if (key === "nip07") {
+        signer = new NDKNip07Signer();
+      } else {
+        try {
+          signer = new NDKPrivateKeySigner(key);
+        } catch (signerError) {
+          throw new Error(
+            "Invalid private key provided. Please check the format and try again."
+          );
+        }
       }
 
       // Groups NDK - only for group relay operations

@@ -72,10 +72,11 @@ export const AuthPrompt: FunctionComponent<AuthPromptProps> = ({ onSubmit }) => 
         return
       }
 
-      const pubkey = await window.nostr.getPublicKey()
-      if (pubkey) {
-        onSubmit(pubkey)
-      }
+      // Verify the extension is accessible and request user consent
+      await window.nostr.getPublicKey()
+      // Pass the NIP-07 sentinel so NostrClient uses NDKNip07Signer,
+      // which delegates signing to the extension with the correct identity.
+      onSubmit('nip07')
     } catch (e) {
       console.error('Failed to connect to extension:', e)
       setError('Failed to connect to extension. Please try again.')
