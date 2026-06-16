@@ -31,6 +31,16 @@ const Initialization = ({ onComplete }: InitializationProps) => {
   const [status, setStatus] = useState<'idle' | 'connecting'>('idle')
 
   useEffect(() => {
+    // One-time migration: clear sessions from before the NIP-07 fix.
+    // Old nos2x sessions stored the pubkey (hex) as the key instead of
+    // using 'nip07'. We can't distinguish a stored pubkey from a stored
+    // privkey, so we invalidate all pre-v2 sessions once.
+    const SESSION_VERSION = '2'
+    if (localStorage.getItem('session_version') !== SESSION_VERSION) {
+      localStorage.removeItem('nostr_key')
+      localStorage.setItem('session_version', SESSION_VERSION)
+    }
+
     // Check if we have a stored key
     const storedKey = localStorage.getItem('nostr_key')
     if (storedKey) {
