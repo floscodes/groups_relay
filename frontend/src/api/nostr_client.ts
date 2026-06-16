@@ -1,10 +1,11 @@
 import NDK, {
   NDKEvent,
   NDKPrivateKeySigner,
-  NDKNip07Signer,
   NDKRelay,
   NDKPublishError,
   NDKUser,
+  type NDKSigner,
+  type NostrEvent,
 } from "@nostr-dev-kit/ndk";
 import { nip19 } from "nostr-tools";
 import localforage from "localforage";
@@ -34,6 +35,40 @@ export interface NostrClientConfig {
 
 // Re-export Transaction type from wallet service
 export { type Transaction } from "../services/CashuWalletService";
+
+// Minimal NIP-07 signer: pubkey is known upfront (from window.nostr.getPublicKey()
+// in AuthPrompt), so we never call getPublicKey() again inside the auth timeout.
+// All signing is delegated to window.nostr.signEvent().
+class WindowNostrSigner implements NDKSigner {
+  private readonly _pubkey: string;
+  private readonly _user: NDKUser;
+
+  constructor(pubkey: string) {
+    this._pubkey = pubkey;
+    this._user = new NDKUser({ pubkey });
+  }
+
+  get pubkey(): string { return this._pubkey; }
+
+  async blockUntilReady(): Promise<NDKUser> { return this._user; }
+  async user(): Promise<NDKUser> { return this._user; }
+
+  async sign(event: NostrEvent): Promise<string> {
+    const signed = await window.nostr!.signEvent(event as any);
+    if (!signed?.sig) throw new Error("nos2x did not return a signature");
+    return signed.sig;
+  }
+
+  get userSync(): NDKUser { return this._user; }
+  toPayload(): string { return JSON.stringify({ type: "nip07", pubkey: this._pubkey }); }
+
+  async encrypt(recipient: NDKUser, value: string): Promise<string> {
+    return window.nostr!.nip04!.encrypt(recipient.pubkey, value);
+  }
+  async decrypt(sender: NDKUser, value: string): Promise<string> {
+    return window.nostr!.nip04!.decrypt(sender.pubkey, value);
+  }
+}
 
 export class NostrGroupError extends Error {
   readonly rawMessage: string;
@@ -88,9 +123,12 @@ export class NostrClient {
       }
 
       // Try to create the signer with better error handling
-      let signer;
-      if (key === "nip07") {
-        signer = new NDKNip07Signer();
+      let signer: NDKSigner;
+      if (key.startsWith("nip07:")) {
+        // Key is "nip07:<hex-pubkey>" — pubkey was fetched from the extension
+        // before this client was created, so no second getPublicKey() is needed.
+        const pubkey = key.slice(6);
+        signer = new WindowNostrSigner(pubkey);
       } else {
         try {
           signer = new NDKPrivateKeySigner(key);
@@ -1095,13 +1133,15 @@ export class NostrClient {
           mainRelay.removeAllListeners("auth:failed");
         };
 
-        // Increase timeout for main relay
+        // NIP-07 signers may show a browser extension popup for signEvent on first
+        // use, so allow more time. Private key signing is instant (10 s is enough).
+        const isExtensionSigner = this.groupsNdk.signer instanceof WindowNostrSigner;
         setTimeout(() => {
           cleanup();
           reject(
             new Error("Connection timeout waiting for main relay authentication")
           );
-        }, 10000); // 10 seconds for main relay
+        }, isExtensionSigner ? 30000 : 10000);
       });
 
       // All relay statuses are now available
