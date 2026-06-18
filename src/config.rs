@@ -15,6 +15,8 @@ pub struct RelaySettings {
     pub local_addr: String,
     pub relay_url: String,
     pub db_path: String,
+    pub pubkey_whitelist: Vec<String>,
+    pub pubkey_blacklist: Vec<String>,
     #[serde(default)]
     pub websocket: WebSocketSettings,
     #[serde(default = "default_max_limit")]
@@ -130,6 +132,8 @@ pub struct Settings {
     pub db_path: String,
     pub max_limit: usize,
     pub max_subscriptions: usize,
+    pub pubkey_whitelist: Vec<PublicKey>,
+    pub pubkey_blacklist: Vec<PublicKey>,
 }
 
 pub use nostr_sdk::Keys;

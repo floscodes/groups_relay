@@ -2,7 +2,8 @@ use crate::{
     app_state::HttpServerState, config, groups::Groups,
     groups_event_processor::GroupsRelayProcessor, handler, metrics,
     metrics_handler::PrometheusSubscriptionMetricsHandler,
-    sampled_metrics_handler::SampledMetricsHandler, RelayDatabase,
+    sampled_metrics_handler::SampledMetricsHandler,
+    validation_middleware::ValidationMiddleware, RelayDatabase,
 };
 use anyhow::Result;
 use axum::{response::IntoResponse, routing::get, Router};
@@ -73,6 +74,11 @@ pub async fn run_server(
     relay_config.enable_auth = true;
 
     let groups_processor = GroupsRelayProcessor::new(groups.clone(), relay_keys.public_key);
+    let validation_middleware = ValidationMiddleware::new(
+        relay_keys.public_key,
+        settings.pubkey_whitelist.clone(),
+        settings.pubkey_blacklist.clone(),
+    );
 
     // Create cancellation token and connection counter
     let cancellation_token = CancellationToken::new();
@@ -101,6 +107,7 @@ pub async fn run_server(
             .relay_info(_relay_info.clone())
             .build_with(|chain| {
                 chain
+                    .with(validation_middleware)
                     .with(Nip40ExpirationMiddleware::new())
                     .with(Nip70Middleware)
             })

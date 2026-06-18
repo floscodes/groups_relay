@@ -13,11 +13,34 @@ use crate::groups::{
 #[derive(Debug, Clone)]
 pub struct ValidationMiddleware {
     relay_pubkey: PublicKey,
+    pubkey_whitelist: Vec<PublicKey>,
+    pubkey_blacklist: Vec<PublicKey>,
 }
 
 impl ValidationMiddleware {
-    pub fn new(relay_pubkey: PublicKey) -> Self {
-        Self { relay_pubkey }
+    pub fn new(
+        relay_pubkey: PublicKey,
+        pubkey_whitelist: Vec<PublicKey>,
+        pubkey_blacklist: Vec<PublicKey>,
+    ) -> Self {
+        Self {
+            relay_pubkey,
+            pubkey_whitelist,
+            pubkey_blacklist,
+        }
+    }
+
+    fn is_allowed(&self, pubkey: &PublicKey) -> bool {
+        if pubkey == &self.relay_pubkey {
+            return true;
+        }
+        if self.pubkey_blacklist.contains(pubkey) {
+            return false;
+        }
+        if !self.pubkey_whitelist.is_empty() && !self.pubkey_whitelist.contains(pubkey) {
+            return false;
+        }
+        true
     }
 
     fn validate_event(&self, event: &Event) -> Result<(), &'static str> {
@@ -97,29 +120,52 @@ impl NostrMiddleware<()> for ValidationMiddleware {
     where
         Next: relay_builder::nostr_middleware::InboundProcessor<()>,
     {
-        let Some(ClientMessage::Event(event)) = &ctx.message else {
-            return ctx.next().await;
-        };
+        match &ctx.message {
+            Some(ClientMessage::Auth(event)) => {
+                if !self.is_allowed(&event.pubkey) {
+                    warn!(
+                        "[{}] Auth rejected for pubkey {} (whitelist/blacklist)",
+                        ctx.connection_id, event.pubkey
+                    );
+                    ctx.send_message(RelayMessage::notice(
+                        "restricted: pubkey not allowed on this relay",
+                    ))?;
+                    return Ok(());
+                }
+                ctx.next().await
+            }
+            Some(ClientMessage::Event(event)) => {
+                if !self.is_allowed(&event.pubkey) {
+                    warn!(
+                        "[{}] Event {} rejected for pubkey {} (whitelist/blacklist)",
+                        ctx.connection_id, event.id, event.pubkey
+                    );
+                    ctx.send_message(RelayMessage::ok(
+                        event.id,
+                        false,
+                        "blocked: pubkey not allowed on this relay",
+                    ))?;
+                    return Ok(());
+                }
 
-        debug!(
-            "[{}] Validating event kind {} with id {}",
-            ctx.connection_id, event.kind, event.id
-        );
+                debug!(
+                    "[{}] Validating event kind {} with id {}",
+                    ctx.connection_id, event.kind, event.id
+                );
 
-        if let Err(reason) = self.validate_event(event) {
-            warn!(
-                "[{}] Event {} validation failed: {}",
-                ctx.connection_id, event.id, reason
-            );
+                if let Err(reason) = self.validate_event(event) {
+                    warn!(
+                        "[{}] Event {} validation failed: {}",
+                        ctx.connection_id, event.id, reason
+                    );
+                    ctx.send_message(RelayMessage::ok(event.id, false, reason))?;
+                    return Ok(());
+                }
 
-            // Send error message
-            ctx.send_message(RelayMessage::ok(event.id, false, reason))?;
-
-            // Stop the chain here with Ok since we've handled the error
-            return Ok(());
+                ctx.next().await
+            }
+            _ => ctx.next().await,
         }
-
-        ctx.next().await
     }
 }
 
