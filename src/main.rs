@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use groups_relay::{config, groups::Groups, server, RelayDatabase};
-use nostr_sdk::RelayUrl;
+use nostr_sdk::{PublicKey, RelayUrl};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -119,6 +119,17 @@ async fn async_main() -> Result<()> {
         .get_settings()
         .context("Failed to get relay settings")?;
 
+    let pubkey_whitelist: Vec<PublicKey> = relay_settings
+        .pubkey_whitelist
+        .iter()
+        .map(|s| PublicKey::from_hex(s).with_context(|| format!("Invalid pubkey in whitelist: {s}")))
+        .collect::<Result<Vec<_>>>()?;
+    let pubkey_blacklist: Vec<PublicKey> = relay_settings
+        .pubkey_blacklist
+        .iter()
+        .map(|s| PublicKey::from_hex(s).with_context(|| format!("Invalid pubkey in blacklist: {s}")))
+        .collect::<Result<Vec<_>>>()?;
+
     let mut settings = config::Settings {
         relay_url: relay_settings.relay_url.clone(),
         local_addr: relay_settings.local_addr.clone(),
@@ -127,6 +138,8 @@ async fn async_main() -> Result<()> {
         db_path: relay_settings.db_path.clone(),
         max_limit: relay_settings.max_limit,
         max_subscriptions: relay_settings.max_subscriptions,
+        pubkey_whitelist,
+        pubkey_blacklist,
     };
 
     if let Some(target_url) = args.relay_url {
