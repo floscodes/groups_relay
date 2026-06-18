@@ -31,7 +31,6 @@ const Initialization = ({ onComplete }: InitializationProps) => {
   const [status, setStatus] = useState<'idle' | 'connecting'>('idle')
 
   useEffect(() => {
-    // Check if we have a stored key
     const storedKey = localStorage.getItem('nostr_key')
     if (storedKey) {
       connectWithKey(storedKey)

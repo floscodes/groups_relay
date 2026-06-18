@@ -72,10 +72,15 @@ export const AuthPrompt: FunctionComponent<AuthPromptProps> = ({ onSubmit }) => 
         return
       }
 
+      // Get the pubkey — this also establishes the user's consent with the extension.
+      // Pass it as 'nip07:<pubkey>' so the client can build the correct identity
+      // immediately without a second getPublicKey round-trip inside the auth timeout.
       const pubkey = await window.nostr.getPublicKey()
-      if (pubkey) {
-        onSubmit(pubkey)
+      if (!pubkey) {
+        setError('Extension did not return a public key. Please try again.')
+        return
       }
+      onSubmit(`nip07:${pubkey}`)
     } catch (e) {
       console.error('Failed to connect to extension:', e)
       setError('Failed to connect to extension. Please try again.')
